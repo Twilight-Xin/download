@@ -92,10 +92,6 @@ class ThreadingDownload:
 
     def prepare_for_thread(self, sequence):  # 用于创建线程
         self.get_size()
-        # if self.exist():
-        #    pass
-        # else:
-        # 留作后用
         if os.path.exists(self.path + self.name):
             os.remove(self.path + self.name)
             print('删除前置版本')
@@ -111,8 +107,9 @@ class ThreadingDownload:
             i.join()
         self.joint()
         os.rename(self.path + self.name + str(1), self.path + self.name)
-        for i in range(2, self.threads_num + 1):
-            os.remove(self.path + self.name + str(i))
+        if self.threads_num >=2:
+            for i in range(2, self.threads_num + 1):
+                os.remove(self.path + self.name + str(i))
         print('Finished')
         return True
 
