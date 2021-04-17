@@ -7,6 +7,32 @@ import sys
 from threading import Thread as Th
 
 
+class Iteration:
+    def __init__(self, content, times=10, chunk_size=1024):
+        self.time = time()
+        self.content = content
+        self.sequence = 0
+        self.times = times
+        self.done = 0
+        self.speed = 0
+        self.chunk_size = chunk_size
+
+    def __iter__(self):
+        return self
+
+    def __next__(self, chunk_size=1024):
+        self.sequence += 1
+        if self.sequence >= self.times:
+            if self.sequence % self.times == 1:
+                self.time = time()
+                self.done = 0
+        chunk = next(self.content.iter_content(chunk_size=self.chunk_size))
+        self.done += len(chunk)
+        if self.sequence % self.times == 0:
+            self.speed = self.done / 1024 / (time() - self.time)
+        return chunk
+
+
 class ThreadingDownload:
 
     def __init__(self, src, name='', headers=None, cookies=None, path='download', timeout=None, threads_num=8):  # 初始化
@@ -48,6 +74,7 @@ class ThreadingDownload:
         else:
             self.total_size = int(html.headers['Content-Length'])
             self.block_size = int(self.total_size / self.threads_num)
+            html.close()  # 关闭连接
 
     def download(self, sequence):  # 下载程序
         if sequence == self.threads_num:
@@ -62,18 +89,20 @@ class ThreadingDownload:
             # print('断点续传')
         self.headers['Range'] = 'bytes=' + start_size + '-' + end_size
         try:
+            # start_time = time()
             html = requests.get(self.src, headers=self.headers, cookies=self.cookies, stream=True, verify=False, timeout=self.timeout)
         except requests.exceptions:
             print('连接错误')
             os.system('pause')
         else:
             with open(self.path + self.name + str(sequence), 'ab') as file:
-                for chunk in html.iter_content(chunk_size=1024):
+                iteration = Iteration(html, times=1, chunk_size=1024*1024)
+                for chunk in iteration:
                     file.write(chunk)
                     file.flush()
                     # 显示进度条
                     self.done += len(chunk)
-                    speed = self.done / 1024 / (time() - self.start_time)
+                    speed = iteration.speed
                     percent = int(100 * self.done / self.total_size)
                     sys.stdout.write("\r[%s%s] %d%% %dkb/s" % ('█' * int(percent / 2), ' ' * (50 - int(percent / 2)), percent, speed))
                     sys.stdout.flush()
@@ -107,7 +136,7 @@ class ThreadingDownload:
             i.join()
         self.joint()
         os.rename(self.path + self.name + str(1), self.path + self.name)
-        if self.threads_num >=2:
+        if self.threads_num >= 2:
             for i in range(2, self.threads_num + 1):
                 os.remove(self.path + self.name + str(i))
         print('Finished')
@@ -120,9 +149,11 @@ if __name__ == '__main__':
     doc = input('请输入文件名')
     try:
         threads = int(input('线程数'))
-        timeout_ = int(input('输入限时'))
     except ValueError:
         threads = None
+    try:
+        timeout_ = int(input('输入限时'))
+    except ValueError:
         timeout_ = None
     d = ThreadingDownload(url, doc, threads_num=threads, timeout=timeout_)
     d.start()
