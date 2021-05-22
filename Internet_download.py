@@ -8,6 +8,8 @@ from threading import Thread as Th
 
 
 class Iteration:
+    __slots__ = ['time', 'content', 'sequence', 'times', 'done', 'speed', 'chunk_size']
+
     def __init__(self, content, times=10, chunk_size=1024):
         self.time = time()
         self.content = content
@@ -34,13 +36,15 @@ class Iteration:
 
 
 class ThreadingDownload:
+    __slots__ = ['src', 'name', 'timeout', 'cookies', 'path', 'start_time', 'total_size', 'block_size', 'threads',
+                 'done', 'threads_num', 'headers', 'wrong']
 
     def __init__(self, src, name='', headers=None, cookies=None, path='download', timeout=None, threads_num=8):  # 初始化
         self.src = src
         if name:
-            self.name = name + self.src[-4:]
+            self.name = name[-125:] + self.src[-4:]
         else:
-            self.name = self.src[self.src.rfind('/''')+1:]
+            self.name = self.src[self.src.rfind('/') + 1:]
         if timeout:
             self.timeout = timeout
         else:
@@ -51,6 +55,7 @@ class ThreadingDownload:
         self.total_size = 0
         self.block_size = 0
         self.threads = []
+        self.wrong = []
         self.done = 0
         urllib3.disable_warnings()
         if threads_num:
@@ -68,51 +73,60 @@ class ThreadingDownload:
 
     def get_size(self):  # 获取即将下载文件的大小
         try:
-            html = requests.get(self.src, headers=self.headers, cookies=self.cookies, stream=True, verify=False, timeout=self.timeout)
+            html = requests.get(self.src, headers=self.headers, cookies=self.cookies, stream=True, verify=False,
+                                timeout=self.timeout)
         except requests.exceptions:
             print('连接错误')
+            return False
         else:
             self.total_size = int(html.headers['Content-Length'])
             self.block_size = int(self.total_size / self.threads_num)
             html.close()  # 关闭连接
+            return True
 
     def download(self, sequence):  # 下载程序
+        # self.get_size()  # 加上后能够正常运行
         if sequence == self.threads_num:
             end_size = ''
         else:
-            end_size = str(sequence * self.block_size - 1)
+            end_size = str(sequence * self.block_size - 1)  # rrr
         start_size = str((sequence - 1) * self.block_size)
         if os.path.exists(self.path + self.name + str(sequence)):
             exist = os.path.getsize(self.path + self.name + str(sequence))
             start_size = str(exist + int(start_size))
             self.done += exist
             # print('断点续传')
-        self.headers['Range'] = 'bytes=' + start_size + '-' + end_size
+        headers = {}
+        for key, value in self.headers.items():
+            headers[key] = value
+        headers['Range'] = 'bytes=' + start_size + '-' + end_size
         try:
             # start_time = time()
-            html = requests.get(self.src, headers=self.headers, cookies=self.cookies, stream=True, verify=False, timeout=self.timeout)
+            html = requests.get(self.src, headers=headers, cookies=self.cookies, stream=True, verify=False,
+                                timeout=self.timeout)
         except requests.exceptions:
             print('连接错误')
-            os.system('pause')
+            return False
         else:
             with open(self.path + self.name + str(sequence), 'ab') as file:
-                iteration = Iteration(html, times=1, chunk_size=1024*1024)
+                iteration = Iteration(html, times=1, chunk_size=1024 * 1024)
                 for chunk in iteration:
                     file.write(chunk)
                     file.flush()
                     # 显示进度条
                     self.done += len(chunk)
-                    speed = iteration.speed
                     percent = int(100 * self.done / self.total_size)
-                    sys.stdout.write("\r[%s%s] %d%% %dkb/s" % ('█' * int(percent / 2), ' ' * (50 - int(percent / 2)), percent, speed))
+                    sys.stdout.write("\r[%s%s] %d%% %dkb/s" % ('█' * int(percent / 2), ' ' * (50 - int(percent / 2)),
+                                                               percent, iteration.speed))
                     sys.stdout.flush()
+            return True
 
     def joint(self):  # 连接程序
         with open(self.path + self.name + str(1), 'ab') as file:
             for i in range(2, self.threads_num + 1):
                 with open(self.path + self.name + str(i), 'rb') as r:
                     while True:
-                        content = r.read(1024*1024)
+                        content = r.read(1024 * 1024)
                         if not content:
                             break
                         else:
@@ -120,27 +134,39 @@ class ThreadingDownload:
                             file.flush()
 
     def prepare_for_thread(self, sequence):  # 用于创建线程
-        self.get_size()
         if os.path.exists(self.path + self.name):
             os.remove(self.path + self.name)
             print('删除前置版本')
-        self.download(sequence)
+        if self.download(sequence):
+            self.wrong.append(True)
+        else:
+            print('The ' + sequence + 'th Part of ' + self.name + ' happens a error')
+            self.wrong.append(False)
 
     def start(self):  # 创建线程并开始下载
         self.start_time = time()
-        for i in range(1, self.threads_num + 1):
-            t = Th(target=self.prepare_for_thread, args=(i,))
-            self.threads.append(t)
-            t.start()
-        for i in self.threads:
-            i.join()
-        self.joint()
-        os.rename(self.path + self.name + str(1), self.path + self.name)
-        if self.threads_num >= 2:
-            for i in range(2, self.threads_num + 1):
-                os.remove(self.path + self.name + str(i))
-        print('Finished')
-        return True
+        if self.get_size():
+            print("after if 的block_size", self.block_size)
+            for i in range(1, self.threads_num + 1):
+                t = Th(target=self.prepare_for_thread, args=(i,))
+                self.threads.append(t)
+                t.start()
+            for i in self.threads:
+                i.join()
+            for i in self.wrong:
+                if i:
+                    pass
+                else:
+                    return False
+            self.joint()
+            os.rename(self.path + self.name + str(1), self.path + self.name)
+            if self.threads_num >= 2:
+                for i in range(2, self.threads_num + 1):
+                    os.remove(self.path + self.name + str(i))
+            print('Finished')
+            return True
+        else:
+            return False
 
 
 if __name__ == '__main__':
