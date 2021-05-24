@@ -146,7 +146,7 @@ class ThreadingDownload:
     def start(self):  # 创建线程并开始下载
         self.start_time = time()
         if self.get_size():
-            print("after if 的block_size", self.block_size)
+            # print("after if 的block_size", self.block_size)
             for i in range(1, self.threads_num + 1):
                 t = Th(target=self.prepare_for_thread, args=(i,))
                 self.threads.append(t)
@@ -163,7 +163,7 @@ class ThreadingDownload:
             if self.threads_num >= 2:
                 for i in range(2, self.threads_num + 1):
                     os.remove(self.path + self.name + str(i))
-            print('Finished')
+            print(' Finished')
             return True
         else:
             return False
